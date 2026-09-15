@@ -1,3 +1,5 @@
+[简体中文](README.md) · [English](README_EN.md)
+
 # 🧠 SuperBrain 超脑
 
 > **情感认知内核 + 可靠记忆层的自主 Agent 框架** · v1.0.0 · 纯 Python 标准库 · 零第三方依赖
