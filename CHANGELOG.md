@@ -1,8 +1,8 @@
 # 超脑 SuperBrain — 变更日志
 
-## v2.0.0（纯 Python 阶段最终 Release）
+## v1.0.0（纯 Python 阶段最终 Release）
 
-> 纯 Python 零依赖实现的收官版，作为发布的第一版正式包。
+> 纯 Python 零依赖实现的收官版，作为发布的第一版正式包（对外 Release 1.0.0）。
 > 后续将接入 Rust 混合内核（PyO3 + HNSW/SIMD/BM25）做强开发，本版为可移植、免编译、可信的纯 Python 基线。
 
 ### 能力总览（内核只做框架，不做设定）

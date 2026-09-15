@@ -2,9 +2,9 @@
 
 > 本文件供新会话无缝接续，记录当前状态和下一步计划。
 
-## 当前状态（v2.0.0 — 纯 Python 阶段最终 Release）
+## 当前状态（v1.0.0 — 对外正式 Release）
 
-- **v2.0.0 = 纯 Python 实现的最终 release**，作为发布的第一版正式包；后续将接入 Rust 混合内核做强开发（PyO3 + HNSW/SIMD/BM25）。
+- **v1.0.0 = 纯 Python 实现的最终 release（对外 Release 1.0.0）**，作为发布的第一版正式包；后续将接入 Rust 混合内核做强开发（PyO3 + HNSW/SIMD/BM25）。
 - 源码 `/root/projects/superbrain`，纯 Python 零依赖，**349 测试全过**（pyflakes src 全量 0 告警）
 - **v2.0.0 漏洞挖掘(第3轮)+行为回路**：挖漏洞抓修 2 个 save/load 往返 bug——① `load_state`/`load_state_from_store` 对合法但非 dict 的 JSON(如字符串)崩 AttributeError → 加 isinstance 防御；② `_restore` 只恢复 personality._traits，丢 autonomy_mode/custom_style(往返后回到 autonomous/空) → 补恢复。安全扫描确认无 Medium/High 可利用漏洞(命令执行有批准门禁、SQL 无注入)，并发 TypeError 为单实例单线程边界、超限输入不崩。补**③愧疚→修复关系回路**：`autonomous` 加 `ThoughtType.REPAIR`，愧疚≥0.4 时对最在意的人生出"想道歉/补偿"冲动；**②情绪偏置决策**：低落(<-0.3)抑制好奇探索、倾向"稳住眼前"(保守)。固化 test_state(2回归)+test_emotion_mechanisms(TestSocialMotivation 4测试)
 - **v2.0.0 内部机制②③④落地**：**②认知-情绪回路**——`agent.recall` 情绪一致性记忆提取：以心境(mood)为一致性信号，低落偏向想起负面、高涨偏向正面，不一致的轻微抑制(×0.5)；**③社会情绪**——`EmotionGradient.social_update(pride/guilt)` 自豪(做成/帮到人→valence+dominance上行) / 愧疚(失责/伤害关系→下行且驱动修复)，接进 `agent.chat()`(成功→自豪、对重要的人失败→愧疚)；**④需求动力学**——`NeedDriveSystem._learn_importance()` 相对持续高缺口的 need 重要性习得上升(形成个性偏好，0.5..2.0有界)。固化 `tests/test_emotion_mechanisms.py`（自豪/愧疚/自豪消愧/需求习得有界/情绪一致符号与抑制）
