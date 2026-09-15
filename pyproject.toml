@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "superbrain"
+version = "1.21.2"
+description = "超脑 SuperBrain — 情感认知内核 + 可靠记忆层的自主 Agent 框架"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "超脑 Team" }]
+keywords = ["agent", "memory", "emotion", "cognitive-architecture", "consciousness", "gwt", "pisa", "eg-mrsi"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["fastmcp<5"]   # MCP 服务对接层（对接 Codex / Hermes 等 MCP 客户端时安装）
+
+[project.urls]
+Homepage = "https://github.com/superbrain/superbrain"
+Documentation = "https://github.com/superbrain/superbrain#readme"
+
+[project.scripts]
+superbrain = "superbrain.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
