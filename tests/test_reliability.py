@@ -21,7 +21,6 @@ class TestAutosave(unittest.TestCase):
         db = tempfile.mktemp(suffix=".db")
         try: os.remove(db)
         except FileNotFoundError: pass
-        import os as _os
         store_import = __import__("superbrain.core.memory.store", fromlist=["MemoryStore"])
         store = store_import.MemoryStore(db)
         agent = SuperBrainAgent(DummyLLM(), store=store)

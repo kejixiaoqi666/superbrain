@@ -7,9 +7,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import List, Optional
 
-from .goals import Goal, Task
+from .goals import Goal
+
+logger = logging.getLogger("superbrain.planner")
 
 
 PLAN_PROMPT = """你是任务规划器。根据目标，生成可执行步骤列表。
@@ -44,7 +47,7 @@ class LLMPlanner:
             if steps:
                 return steps
         except Exception:
-            pass
+            logger.debug("规划 LLM 失败，回退规则拆解", exc_info=True)
         # 回退：规则拆解
         return ["分析需求", "执行核心动作", "验证结果"]
 

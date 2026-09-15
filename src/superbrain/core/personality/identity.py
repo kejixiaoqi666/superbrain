@@ -13,7 +13,7 @@ Identity 是"我是谁"的稳定锚点（不随对话变化）。
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 
 @dataclass

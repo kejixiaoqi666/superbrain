@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional
+from dataclasses import asdict
 
 from .core.agent import SuperBrainAgent, AgentConfig
 from .core.llm import LLMProvider, from_env as _llm_from_env
@@ -119,19 +120,152 @@ class SuperBrain:
             self._agent.needs, self._agent.emotion, self._agent.relationships)
 
     def drain_thoughts(self):
-        """取出待发的自主消息队列（供上层灌进对话）。"""
+        """取出并清空待发自主想法队列（供上层主动消费）。"""
         return self._agent.autonomous.drain()
 
+    def tick(self) -> dict:
+        """核心一次推进（策略入口，供上层 agent 定时调用）。
+
+        超脑是核心库非智能体——本方法只做「一次推进」，**何时调用、是否据返回的
+        主动内容打扰用户，由上层 agent 决定**；超脑自身不做无人值守/定时/常驻。
+
+        聚合一轮内化推进：
+          1. 需求/情绪/神经化学代谢（内部状态随时间演进）
+          2. 自主想法生成（想念/关心/好奇/分享，有才产出）
+          3. 自主目标生成（冷却去重）
+          4. 人格自省 reflect（基于近期表达内化）
+          5. 用户画像→人格升格（从长期相处习得表达倾向）
+
+        返回本轮产出的主动内容 dict：
+          {"thoughts": [...], "new_goals": [...], "reflected": [...], "absorbed": [...]}
+        全空 = 本轮无主动产出，上层应静默（不打扰用户）。
+        """
+        a = self._agent
+        # 1. 内部代谢
+        try:
+            a.needs.tick()
+            sats = {nt.value: a.needs.needs[nt].current_level for nt in a.needs.needs}
+            a.emotion.update(sats)
+            a.neurochem.tick()
+            a.neurochem.observe(a.emotion.state.valence, a.emotion.state.arousal)
+        except Exception:
+            pass
+        # 2. 自主想法（纯产生，不入队不自动发）
+        thoughts = []
+        try:
+            produced = a.autonomous.generate(a.needs, a.emotion, a.relationships) or []
+            thoughts = [asdict(t) for t in produced if hasattr(t, "type")]
+        except Exception:
+            thoughts = []
+        # 3. 自主目标（本次新涌现，冷却去重由引擎内部处理）
+        new_goals = []
+        try:
+            goals = a.generate_goals() or []
+            new_goals = [g.to_dict() for g in goals if hasattr(g, "to_dict")]
+        except Exception:
+            new_goals = []
+        # 4. 人格自省（内化调整）
+        reflected = []
+        try:
+            reflected = a._self_reflect() or []
+        except Exception:
+            reflected = []
+        # 5. 用户画像→人格升格
+        absorbed = []
+        try:
+            absorbed = a.absorb_user_profiles() or []
+        except Exception:
+            absorbed = []
+        return {"thoughts": thoughts, "new_goals": new_goals,
+                "reflected": reflected, "absorbed": absorbed}
+
+    def absorb_user_profiles(self) -> List[str]:
+        """从所有用户长期画像升格人格（用户画像→关系→人格三级联动）。"""
+        return self._agent.absorb_user_profiles()
+
+    def personality(self) -> dict:
+        """人格维度画像：可度量的人格维度框架（长出来的，非预设）。"""
+        return self._agent.personality.profile()
+
+    def set_personality(self, dimension: str, value: float,
+                        source: str = "explicit", note: str = "") -> bool:
+        """显式设定某人格维度（用户反馈「你应该更X」）。返回是否成功。"""
+        return self._agent.personality.set(dimension, value,
+                                           source=source, note=note) is not None
+
+    def personality_mode(self) -> str:
+        """当前进化模式开关：autonomous(自主演化) 或 guided(用户主导)。"""
+        return self._agent.personality.mode
+
+    def set_personality_mode(self, mode: str) -> bool:
+        """设定进化模式开关：autonomous(自主演化) 或 guided(用户主导,自动通道全停)。
+
+        guided 模式下 observe/reflect/画像升格 全部暂停，人格只由用户 set/apply_style 决定。
+        """
+        return self._agent.personality.set_mode(mode)
+
+    def apply_style(self, style: str) -> List[str]:
+        """一句话风格设定（任意自然语言，如可爱/冷静/高冷/傲娇...，不限于预置清单）。
+
+        - 预置风格(可爱/温柔/活泼/冷静/沉稳/高冷/理智/热情/随和/严肃) → 映射为大五
+          维度组合显式设定(explicit)，返回被设定的维度名；
+        - 自定义风格(如傲娇/干练/古灵精怪) → 不强套维度，仅记录为表达风格 custom_style；
+        - 两种都会自动切到 guided 用户主导模式（自动通道全停，听用户的）。
+        """
+        return self._agent.personality.apply_style(style)
+
+    def available_styles(self) -> List[str]:
+        """常见风格便捷映射清单（仅作示例，不锁定——任意自然语言风格都可设）。"""
+        return self._agent.personality.available_styles
+
+    def style_text(self) -> str:
+        """当前表达风格文本（custom_style，供上层注入 prompt/humanize；空串=未设定）。"""
+        return self._agent.personality.style_text
+
+    def generate_goals(self):
+        """自主目标生成：基于需求/情绪/关系/人格维度涌现中长期意图，返回本次新产生的目标。"""
+        return self._agent.generate_goals()
+
+    def autonomous_goals(self) -> List[Dict]:
+        """当前自主目标清单（含 active/completed/abandoned）。"""
+        return self._agent.auto_goals.summary()
+
+    def adopt_goals(self) -> List[Dict]:
+        """把 active 自主目标采纳进目标系统（意图→目标闭环），返回新采纳的 Goal。"""
+        return [g.to_dict() for g in self._agent.adopt_autonomous_goals()]
+
+    def user_profile(self, person_id: str) -> Optional[Dict]:
+        """被动用户画像：对某个人被动积累的了解（沟通风格/情绪基调/话题/偏好）。"""
+        up = self._agent.user_profiles.get(person_id)
+        return up.to_dict() if up else None
+
     def humanize(self, text: str, person_id: str = None) -> str:
-        """人性化表达包装：按情绪 + 与该人亲密度/昵称生成口语化文本。"""
+        """人性化表达包装：按情绪 + 人格维度 + 与该人亲密度/昵称/画像生成口语化文本。"""
         emotion = self._agent.emotion.state
         familiarity, nickname = 0.5, ""
+        user_profile = None
         if person_id:
             rel = self._agent.relationships.get(person_id)
             if rel:
                 familiarity, nickname = rel.familiarity, rel.nickname
-        return self._agent.humanize.humanize(
-            text, emotion, familiarity=familiarity, nickname=nickname)
+            user_profile = self._agent.user_profiles.get(person_id)
+        result = self._agent.humanize.humanize(
+            text, emotion, familiarity=familiarity, nickname=nickname,
+            personality=self._agent.expression_personality(person_id),
+            user_profile=user_profile)
+        self._agent.record_expression()   # 记录本次表达，供 dream 自省内化
+        return result
+
+    def set_user_style(self, person_id: str, style: str) -> bool:
+        """为该用户记录表达风格（per-user 用户主导）。
+
+        对该用户预置风格(可爱/冷静...)会在 humanize 时覆盖表达倾向，不影响全局人格。
+        """
+        return self._agent.set_user_style(person_id, style)
+
+    def user_style(self, person_id: str) -> str:
+        """该用户的表达风格文本（无则空串）。"""
+        return self._agent.user_style(person_id)
 
     def search_meme(self, query: str, limit: int = 5):
         """搜索表情包，返回 [{url, title, source}]。"""

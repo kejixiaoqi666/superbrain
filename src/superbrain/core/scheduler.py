@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import threading
 import time
+import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
+
+logger = logging.getLogger("superbrain.scheduler")
 
 
 @dataclass
@@ -73,7 +76,8 @@ class Scheduler:
                     try:
                         job.func()  # 锁外执行，避免持锁调用外部 func 阻塞调度
                     except Exception:
-                        pass  # 后台任务静默，不中断调度
+                        # 后台任务异常不中断调度，但必须记录供诊断（否则持续失败无法察觉）
+                        logger.warning("后台任务 %r 执行异常", job.name, exc_info=True)
                     job.last_run = now
                     job.run_count += 1
             time.sleep(0.1)  # 细粒度轮询：新任务 0.1~0.3s 内响应，避免 1s 粒度漏触发

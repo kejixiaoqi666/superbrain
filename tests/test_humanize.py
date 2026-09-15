@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from superbrain.core.humanize import HumanizeEngine
 from superbrain.core.cognition.emotion import EmotionalState
 
@@ -38,3 +40,58 @@ class TestHumanize(unittest.TestCase):
   s = HumanizeEngine(1).humanize("哈哈哈", e(0, .3))
   self.assertIn("哈哈哈", s)
   self.assertTrue(s.endswith(("喵", "啦", "嗷", "~")))
+
+
+class _P:
+    """人格维度 stub：get(name) -> 带 value 的对象。"""
+    def __init__(self, d): self._d = d
+    def get(self, name):
+        v = self._d.get(name)
+        return SimpleNamespace(value=v) if v is not None else None
+
+
+class TestHumanizePersonality(unittest.TestCase):
+    """v1.22.1 人格维度/用户画像驱动人性化表达。"""
+
+    def test_agreeableness_gentle(self):
+        """高宜人性 → 亲昵门槛降低（熟悉度 0.5 也加轻亲昵）。"""
+        p = _P({"agreeableness": 0.9})
+        s = HumanizeEngine(0).humanize("好", e(), .5, personality=p)
+        self.assertIn("~", s)
+
+    def test_agreeableness_neutral_no_gentle(self):
+        p = _P({"agreeableness": 0.4})
+        s = HumanizeEngine(0).humanize("好", e(), .5, personality=p)
+        self.assertNotIn("~", s)
+
+    def test_neuroticism_emotional(self):
+        """高神经质 → 情绪低落阈值放宽，-0.3 即流露『呜呜』。"""
+        p = _P({"neuroticism": 0.9})
+        self.assertIn("呜呜", HumanizeEngine(0).humanize("累", e(-.3), personality=p))
+
+    def test_neuroticism_normal_threshold(self):
+        """默认神经质 → 阈值 -0.4，-0.3 不触发。"""
+        p = _P({"neuroticism": 0.3})
+        self.assertNotIn("呜呜", HumanizeEngine(0).humanize("累", e(-.3), personality=p))
+
+    def test_user_profile_care(self):
+        """用户画像情绪基调低落 → 追加关心。"""
+        up = SimpleNamespace(mood_mean=-0.8)
+        s = HumanizeEngine(0).humanize("好", e(), user_profile=up)
+        self.assertIn("你要好好的", s)
+
+    def test_extraversion_lively(self):
+        """高外向性 → 卖萌概率上调（同随机数下更容易出词缀）。"""
+        eng = HumanizeEngine(0.4)
+        with patch("superbrain.core.humanize.random.random", return_value=0.5):
+            affix = eng._choose_affix(e(0, .5), .5, extraversion=0.9)
+        self.assertIn(affix, ("喵", "啦", "嗷", "~"))
+        with patch("superbrain.core.humanize.random.random", return_value=0.5):
+            affix = eng._choose_affix(e(0, .5), .5, extraversion=0.3)
+        self.assertEqual(affix, "")
+
+    def test_dirty_personality_defensive(self):
+        """脏人格输入（None/无 get）不崩，回退中性默认。"""
+        for bad in (None, SimpleNamespace(), {"extraversion": "x"}):
+            s = HumanizeEngine(0).humanize("好", e(), personality=bad)
+            self.assertIsInstance(s, str)

@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from superbrain.core.personality.seed import SeedBank, Seed
+from superbrain.core.personality.seed import SeedBank
 
 
 class TestSeedDedupe(unittest.TestCase):

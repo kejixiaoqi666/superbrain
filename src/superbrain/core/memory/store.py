@@ -9,7 +9,7 @@ import struct
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
 from .node import MemoryNode, fingerprint
 from .embeddings import cosine, dot_normalized
@@ -84,11 +84,53 @@ class MemoryStore:
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(_SCHEMA)
         self.conn.commit()
+        self._migrate_schema()   # 旧版库补列，保证升到新版不崩
         self._vec_cache: Dict[str, Tuple[bytes, List[float]]] = {}
         self._tx_depth = 0
         # 向量是否已归一化（HashingEmbedder 输出已归一化 → 用点积快路径）
         self.normalized = False
         self._node_count_cache: Optional[int] = None  # 节点数缓存（省 SQL COUNT）
+        # 记忆库物理上限（护栏，默认 1GB，可配置）——配合对话浓缩机制，实际很难触达
+        self.max_db_bytes: int = 1024 ** 3
+
+    def db_size(self) -> int:
+        """记忆库当前磁盘占用（字节）。"""
+        try:
+            return os.path.getsize(self.path)
+        except OSError:
+            return 0
+
+    def over_size_limit(self) -> bool:
+        """是否超过记忆库物理上限（触发强制浓缩/遗忘）。"""
+        return self.db_size() > self.max_db_bytes
+
+    def _migrate_schema(self) -> None:
+        """旧版库 schema 迁移：为缺失的新列补 ALTER TABLE（不重建表，保留数据）。
+
+        `CREATE TABLE IF NOT EXISTS` 不会给已存在的旧表加列；旧版 brain.db 缺
+        scope/tier/valence 等新列时，新版代码查询会报 `no such column`。这里逐列
+        PRAGMA 检查，缺的用 ALTER TABLE ADD COLUMN 补上（带默认值）。
+        """
+        try:
+            existing = {r[1] for r in
+                        self.conn.execute("PRAGMA table_info(nodes)").fetchall()}
+            # (列名, 完整定义) 与 _SCHEMA 保持一致
+            needed = {
+                "scope": "TEXT NOT NULL DEFAULT 'user'",
+                "tier": "TEXT NOT NULL DEFAULT 'recall'",
+                "valence": "REAL NOT NULL DEFAULT 0",
+                "valid_from": "REAL NOT NULL DEFAULT 0",
+                "valid_until": "REAL NOT NULL DEFAULT 0",
+                "retention_strength": "REAL NOT NULL DEFAULT 1.0",
+                "review_count": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for col, ddl in needed.items():
+                if col not in existing:
+                    self.conn.execute(f"ALTER TABLE nodes ADD COLUMN {col} {ddl}")
+            self.conn.commit()
+        except Exception:
+            # 迁移失败不阻塞连接；极端情况下可重建库（数据迁移由上层负责）
+            pass
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -385,6 +427,10 @@ class MemoryStore:
                 continue
             if scope and n.scope != scope:
                 continue
+            if n.tier == "archival":
+                # 遗忘-重激活：被重新提起的遗忘记忆恢复活跃（遗忘≠删除，提起来又活跃）
+                self.promote(n.node_id, "recall")
+                n.tier = "recall"
             hits.append((n, s))
         if hits:
             with self.transaction():
@@ -453,13 +499,24 @@ class MemoryStore:
             emb = []
         return MemoryNode(
             node_id=row[0], content=row[1], embedding=emb,
-            tags=json.loads(row[3]), scene=row[4], confidence=row[5],
+            tags=self._parse_tags(row[3]), scene=row[4], confidence=row[5],
             kind=row[6], scope=row[7], tier=row[8],
             valence=row[9],
             valid_from=row[10], valid_until=row[11],
             retention_strength=row[12], review_count=row[13],
             created_at=row[14], last_access=row[15], access_count=row[16],
         )
+
+    @staticmethod
+    def _parse_tags(raw) -> List[str]:
+        """解析 tags JSON，旧库 NULL/脏值容错为 []（旧数据兼容）。"""
+        if not raw:
+            return []
+        try:
+            t = json.loads(raw)
+            return t if isinstance(t, list) else []
+        except Exception:
+            return []
 
     def _set_meta(self, key: str, value: str) -> None:
         self.conn.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, value))

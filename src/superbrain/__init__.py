@@ -47,9 +47,12 @@ from .core.personality.values import ValueSystem, CorePrinciple, Preference
 from .core.personality.relationship import Relationship, RelationshipGraph
 from .core.personality.self_model import SelfModel
 from .core.personality.identity import Identity
+from .core.personality.dimensions import PersonalityDimensions, Trait
+from .core.autonomous_goals import AutonomousGoalEngine, AutonomousGoal, GoalHorizon
+from .core.user_profile import UserProfileGraph, UserProfile
 from .core.learning import LearningExtractor
 
-__version__ = "1.21.2"
+__version__ = "2.0.0"
 
 __all__ = [
     "SuperBrainAgent", "AgentConfig", "SuperBrain",
@@ -92,6 +95,9 @@ __all__ = [
     "Relationship", "RelationshipGraph",
     "SelfModel",
     "Identity",
+    "PersonalityDimensions", "Trait",
+    "AutonomousGoalEngine", "AutonomousGoal", "GoalHorizon",
+    "UserProfileGraph", "UserProfile",
     "LearningExtractor",
     "__version__",
 ]

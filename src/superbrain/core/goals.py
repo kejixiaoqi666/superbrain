@@ -10,7 +10,7 @@ import uuid
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .cognition.needs import NeedType
 
@@ -46,13 +46,17 @@ class Goal:
     status: str = "pending"
     tasks: List[Task] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
+    # 来源：need(即时需求派生) | autonomous(自主目标采纳)
+    source: str = "need"
+    source_id: str = ""  # 对应 AutonomousGoal.id，用于去重
 
     def to_dict(self) -> dict:
         return {"id": self.id, "description": self.description,
                 "driven_by": self.driven_by, "priority": self.priority,
                 "status": self.status,
                 "tasks": [t.to_dict() for t in self.tasks],
-                "created_at": self.created_at}
+                "created_at": self.created_at,
+                "source": self.source, "source_id": self.source_id}
 
 
 class GoalManager:
@@ -117,6 +121,35 @@ class GoalManager:
     def active_goals(self) -> List[Goal]:
         return [g for g in self._goals if g.status in
                 (GoalStatus.PENDING.value, GoalStatus.IN_PROGRESS.value)]
+
+    def has_source(self, source_id: str) -> bool:
+        """是否已采纳过某自主目标（去重，防重复采纳）。"""
+        return any(g.source_id == source_id for g in self._goals)
+
+    def adopt_autonomous(self, ag) -> Optional[Goal]:
+        """把一条自主目标（中长期意图）采纳为目标系统里的可执行 Goal。
+
+        鸭子类型接受 AutonomousGoal（id/content/horizon/driven_by/urgency）。
+        返回新 Goal；已采纳过（source_id 重复）则返回 None。
+        """
+        if ag is None:
+            return None
+        sid = getattr(ag, "id", "") or ""
+        content = getattr(ag, "content", "") or ""
+        if not sid or not str(content).strip():
+            return None  # 无 id 或无实质内容的脏目标不采纳
+        if self.has_source(sid):
+            return None
+        goal = Goal(
+            id=f"goal_{uuid.uuid4().hex[:8]}",
+            description=content,
+            driven_by=getattr(ag, "driven_by", "") or "autonomous",
+            priority=getattr(ag, "urgency", 0.5) or 0.5,
+            source="autonomous",
+            source_id=sid,
+        )
+        self._goals.append(goal)
+        return goal
 
     def summary(self) -> List[dict]:
         return [g.to_dict() for g in self._goals]

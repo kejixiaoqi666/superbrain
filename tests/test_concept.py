@@ -58,8 +58,8 @@ class TestDedupe(unittest.TestCase):
 
     def test_find_duplicates(self):
         v = [0.5] * 64
-        a = self.store.add(MemoryNode(content="我喜欢用deepseek", embedding=v))
-        b = self.store.add(MemoryNode(content="我喜欢用deepseek啊", embedding=v))
+        self.store.add(MemoryNode(content="我喜欢用deepseek", embedding=v))
+        self.store.add(MemoryNode(content="我喜欢用deepseek啊", embedding=v))
         pairs = dedupe.find_duplicates(self.store, threshold=0.5)
         self.assertGreaterEqual(len(pairs), 1)
 

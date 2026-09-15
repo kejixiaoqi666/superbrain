@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 
 EXTRACT_PROMPT = """从下面这段记忆里抽取关键实体/概念，以及它们之间的关系。

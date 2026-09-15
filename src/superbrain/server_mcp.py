@@ -69,7 +69,7 @@ def brain_chat(message: str, person_id: str = "") -> str:
 
 @mcp.tool()
 def memory_remember(content: str) -> str:
-    """让超脑记住一条信息。返回记忆 node id。"""
+    """让超脑记住一条信息。返回记忆 node id（facade.remember 已返回 str，JSON 兼容）。"""
     return _get_brain().remember(content)
 
 
@@ -124,6 +124,82 @@ def search_meme(query: str, limit: int = 5) -> str:
     return _dumps(_get_brain().search_meme(query, limit=limit))
 
 
+@mcp.tool()
+def personality_profile() -> str:
+    """查看超脑的人格维度画像（可度量的人格维度框架，长出来的，非预设）。"""
+    return _dumps(_get_brain().personality())
+
+
+@mcp.tool()
+def set_personality(dimension: str, value: float, note: str = "") -> str:
+    """显式设定某人格维度（如用户反馈「你应该更外向」）。返回是否成功。"""
+    return _dumps(_get_brain().set_personality(dimension, value, note=note) or False)
+
+
+@mcp.tool()
+def superbrain_tick() -> str:
+    """核心一次推进（供上层 agent cron 定时调用）。
+
+    聚合一轮内化推进：需求/情绪/神经化学代谢 + 自主想法生成 + 自主目标生成 +
+    人格自省 + 用户画像升格。返回 {thoughts, new_goals, reflected, absorbed} 产出 dict。
+    纯产生、不自动发送——上层 agent 据返回决定是否打扰用户。
+    超脑是核心库非智能体，自身不做定时/无人值守；由接入的 agent 决定何时调。
+    """
+    return _dumps(_get_brain().tick())
+
+
+@mcp.tool()
+def personality_mode() -> str:
+    """查看超脑当前进化模式：autonomous(自主演化) 或 guided(用户主导)。"""
+    return _dumps(_get_brain().personality_mode())
+
+
+@mcp.tool()
+def set_personality_mode(mode: str) -> str:
+    """设定超脑进化模式开关：autonomous(自主演化,默认) 或 guided(用户主导,自动通道全停,只听用户)。"""
+    return _dumps(_get_brain().set_personality_mode(mode))
+
+
+@mcp.tool()
+def apply_style(style: str) -> str:
+    """一句话风格设定（任意自然语言，如可爱/冷静/高冷/傲娇/干练...不锁定）。
+
+    预置风格→映射为大五维度显式设定(explicit)并切 guided；自定义风格→不强套维度、
+    仅记录 custom_style 并切 guided（完全听用户）。返回被设定的维度名列表。
+    """
+    return _dumps(_get_brain().apply_style(style))
+
+
+@mcp.tool()
+def available_styles() -> str:
+    """常见风格便捷映射清单（仅作示例，不锁定——任意自然语言风格都可设）。"""
+    return _dumps(_get_brain().available_styles())
+
+
+@mcp.tool()
+def style_text() -> str:
+    """当前表达风格文本（custom_style，供上层注入 prompt/humanize；空串=未设定）。"""
+    return _dumps(_get_brain().style_text())
+
+
+@mcp.tool()
+def generate_goals() -> str:
+    """让超脑基于内在状态（需求/情绪/关系/人格维度）涌现中长期自主目标。"""
+    return _dumps([_goal_dict(g) for g in _get_brain().generate_goals()])
+
+
+@mcp.tool()
+def autonomous_goals() -> str:
+    """查看超脑当前的自主目标清单（active/completed/abandoned）。"""
+    return _dumps(_get_brain().autonomous_goals())
+
+
+@mcp.tool()
+def user_profile(person_id: str) -> str:
+    """查看对某个人被动积累的用户画像（沟通风格/情绪基调/话题/偏好）。"""
+    return _dumps(_get_brain().user_profile(person_id))
+
+
 def _thought_dict(t) -> dict:
     """自主想法 → 可序列化 dict。"""
     return {
@@ -133,6 +209,19 @@ def _thought_dict(t) -> dict:
         "reason": getattr(t, "reason", ""),
         "person_id": getattr(t, "person_id", ""),
         "created_at": getattr(t, "created_at", 0.0),
+    }
+
+
+def _goal_dict(g) -> dict:
+    """自主目标 → 可序列化 dict。"""
+    return {
+        "id": getattr(g, "id", ""),
+        "content": getattr(g, "content", ""),
+        "horizon": getattr(g, "horizon", ""),
+        "driven_by": getattr(g, "driven_by", ""),
+        "urgency": getattr(g, "urgency", 0.0),
+        "reason": getattr(g, "reason", ""),
+        "status": getattr(g, "status", ""),
     }
 
 

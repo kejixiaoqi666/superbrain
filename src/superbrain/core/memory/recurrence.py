@@ -4,8 +4,7 @@ Keeps repeated raw interactions in a cheap buffer and only promotes a cluster
 when recurrence is observed.  The gate is deterministic and dependency-free.
 """
 from __future__ import annotations
-from collections import Counter
-from typing import Iterable, List, Tuple
+from typing import List, Tuple
 from .node import MemoryNode, _gram_set
 from .store import MemoryStore
 

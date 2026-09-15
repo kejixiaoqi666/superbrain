@@ -1,6 +1,6 @@
 """Opt-in incremental hierarchical condensation (MemTree/LightMem inspired)."""
 from __future__ import annotations
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from .node import MemoryNode
 from .store import MemoryStore
 

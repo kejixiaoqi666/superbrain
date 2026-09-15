@@ -9,8 +9,8 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from superbrain.core.memory.store import MemoryStore
-from superbrain.core.memory.node import MemoryNode, fingerprint
-from superbrain.core.memory import retrieval, heat, embeddings, distill, dream
+from superbrain.core.memory.node import MemoryNode
+from superbrain.core.memory import heat, distill, dream
 
 
 class TestScopeTier(unittest.TestCase):

@@ -33,7 +33,7 @@ class TestNeuroChemistry(unittest.TestCase):
 class TestMetacognition(unittest.TestCase):
     def test_reflect_high_conf_low_outcome(self):
         m = Metacognition()
-        r = m.reflect("决策X", reasoning_quality=0.8, confidence=0.9, outcome=-0.8)
+        m.reflect("决策X", reasoning_quality=0.8, confidence=0.9, outcome=-0.8)
         self.assertGreater(m.cautiousness, 0.5)  # 高估后更谨慎
 
     def test_trend(self):

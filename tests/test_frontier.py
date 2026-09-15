@@ -15,7 +15,6 @@ from superbrain.core.memory.node import MemoryNode
 class TestGWT(unittest.TestCase):
     def test_competition_broadcast(self):
         g = GlobalWorkspace(controller=lambda text: text)
-        calls = {"a": 0, "b": 0}
         g.register("高紧迫", lambda: {"content": "紧急！", "urgency": 0.9, "salience": 0.8})
         g.register("低紧迫", lambda: {"content": "随便", "urgency": 0.1, "salience": 0.1})
         out = g.act()

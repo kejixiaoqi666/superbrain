@@ -6,7 +6,7 @@ and importance; updates are persisted through MemoryStore.
 """
 from __future__ import annotations
 import math, time
-from typing import Iterable, List, Tuple
+from typing import List
 from .node import MemoryNode
 from .store import MemoryStore
 

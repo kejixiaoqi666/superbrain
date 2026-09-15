@@ -7,9 +7,9 @@ MemGAS：按查询熵选择检索粒度——模糊查询多路粗召回，精�
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
-from .node import MemoryNode, _gram_set
+from .node import MemoryNode
 from .store import MemoryStore
 
 RRF_K = 60
@@ -147,7 +147,6 @@ def granularity_weights(store: MemoryStore, query_vec: List[float],
     只对 candidates（≤100）算，不扫全量，保证不损性能。
     """
     from .embeddings import cosine, dot_normalized
-    import math
 
     if not candidates:
         return {}
@@ -209,9 +208,22 @@ def adaptive_search(store: MemoryStore, query_vec: List[float], query_text: str,
         recall_k = max(k, int(k * (1.5 + e)))
         return search(store, query_vec, query_text, k=recall_k)[:k]
 
-    # 多粒度路径：先 FTS5 粗筛候选，再跨粒度加权
+    # 多粒度路径：FTS5 粗筛候选 → 各粒度算相似度 → 按熵权重重排（MemGAS 落地）
+    from .embeddings import cosine, dot_normalized
     cand = store.keyword_search(query_text, k=CANDIDATE_K)
     if not cand:
         return []
     weights = granularity_weights(store, query_vec, query_text, cand)
-    return search(store, query_vec, query_text, k=k)
+    sim_fn = dot_normalized if store.normalized else cosine
+    scored = []
+    for n in cand:
+        kw = _keyword_sim(query_text, n.content)
+        summary = _keyword_sim(query_text, n.content.split("。")[0])
+        vec = sim_fn(query_vec, n.embedding) if n.embedding else 0.0
+        # 低熵(更确定)粒度权重高 → 该粒度相似度贡献大；跨粒度加权融合
+        gs = (weights.get("keyword", 0.0) * kw
+              + weights.get("summary", 0.0) * summary
+              + weights.get("turn", 0.0) * vec)
+        scored.append((gs, n))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [(n, s, "多粒度熵路由") for s, n in scored[:k]]

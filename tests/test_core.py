@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from superbrain.core.memory.store import MemoryStore
 from superbrain.core.memory.node import MemoryNode, fingerprint
 from superbrain.core.memory import retrieval, heat
-from superbrain.core.cognition.needs import NeedDriveSystem, NeedType
+from superbrain.core.cognition.needs import NeedDriveSystem
 from superbrain.core.cognition.emotion import EmotionGradient
 from superbrain.core.cognition.self_tune import SelfTuner
 

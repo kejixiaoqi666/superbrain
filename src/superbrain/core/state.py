@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Optional
 
 from .cognition.needs import NeedDriveSystem, NeedType
 from .cognition.emotion import EmotionGradient
@@ -25,9 +24,11 @@ def default_state_path() -> str:
 def save_state(path: str, needs: NeedDriveSystem, emotion: EmotionGradient,
                distiller: Distiller, goals: GoalManager,
                seeds=None, values=None, relationships=None, self_model=None,
-               identity=None, neurochem=None, metacog=None, session=None) -> None:
+               identity=None, neurochem=None, metacog=None,
+               personality=None, auto_goals=None, user_profiles=None,
+               session=None) -> None:
     """序列化认知+人格状态到 JSON 文件。"""
-    state = _snapshot(needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, session)
+    state = _snapshot(needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, personality, auto_goals, user_profiles, session)
     parent = os.path.dirname(os.path.abspath(path))
     os.makedirs(parent, exist_ok=True)
     # 原子写：先写临时文件再 rename，避免写一半崩溃损坏原文件
@@ -42,6 +43,7 @@ def save_state(path: str, needs: NeedDriveSystem, emotion: EmotionGradient,
 def _snapshot(needs, emotion, distiller, goals,
               seeds=None, values=None, relationships=None, self_model=None,
               identity=None, neurochem=None, metacog=None,
+              personality=None, auto_goals=None, user_profiles=None,
               session=None) -> dict:
     """导出认知+人格状态快照 dict（人格层可选）。session 为对话历史等会话态。"""
     state = {
@@ -67,6 +69,12 @@ def _snapshot(needs, emotion, distiller, goals,
         state["neurochem"] = neurochem.to_dict()
     if metacog is not None:
         state["metacognition"] = metacog.to_dict()
+    if personality is not None:
+        state["personality"] = personality.to_dict()
+    if auto_goals is not None:
+        state["auto_goals"] = auto_goals.to_dict()
+    if user_profiles is not None:
+        state["user_profiles"] = user_profiles.to_dict()
     if session is not None:
         state["session"] = session
     return state
@@ -74,16 +82,20 @@ def _snapshot(needs, emotion, distiller, goals,
 
 def save_state_to_store(store, needs, emotion, distiller, goals,
                         seeds=None, values=None, relationships=None, self_model=None,
-                        identity=None, neurochem=None, metacog=None, session=None) -> None:
+                        identity=None, neurochem=None, metacog=None,
+                        personality=None, auto_goals=None, user_profiles=None,
+                        session=None) -> None:
     """把认知+人格状态存入 MemoryStore 的 meta 表（统一持久化：一个 .db = 整个大脑）。"""
     store._set_meta("cognition_state", json.dumps(
-        _snapshot(needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, session),
+        _snapshot(needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, personality, auto_goals, user_profiles, session),
         ensure_ascii=False))
 
 
 def load_state_from_store(store, needs, emotion, distiller, goals,
                           seeds=None, values=None, relationships=None, self_model=None,
-                          identity=None, neurochem=None, metacog=None, session=None) -> bool:
+                          identity=None, neurochem=None, metacog=None,
+                          personality=None, auto_goals=None, user_profiles=None,
+                          session=None) -> bool:
     """从 MemoryStore 的 meta 表恢复认知+人格状态。"""
     raw = store._get_meta("cognition_state")
     if not raw:
@@ -92,12 +104,15 @@ def load_state_from_store(store, needs, emotion, distiller, goals,
         state = json.loads(raw)
     except json.JSONDecodeError:
         return False
-    return _restore(state, needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, session)
+    if not isinstance(state, dict):
+        return False   # meta 中非 dict → 容错为加载失败
+    return _restore(state, needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, personality, auto_goals, user_profiles, session)
 
 
 def _restore(state: dict, needs, emotion, distiller, goals,
              seeds=None, values=None, relationships=None, self_model=None,
              identity=None, neurochem=None, metacog=None,
+             personality=None, auto_goals=None, user_profiles=None,
              session=None) -> bool:
     """从状态 dict 恢复认知+人格状态。"""
     # 恢复需求
@@ -135,6 +150,7 @@ def _restore(state: dict, needs, emotion, distiller, goals,
             id=gd.get("id", ""), description=gd.get("description", ""),
             driven_by=gd.get("driven_by", ""), priority=gd.get("priority", 0.0),
             status=gd.get("status", "pending"), created_at=gd.get("created_at", 0.0),
+            source=gd.get("source", "need"), source_id=gd.get("source_id", ""),
         )
         for td in gd.get("tasks", []):
             from .goals import Task
@@ -191,6 +207,25 @@ def _restore(state: dict, needs, emotion, distiller, goals,
         metacog.cautiousness = mc.cautiousness
         metacog.strategy_bias = mc.strategy_bias
         metacog._reflections = mc._reflections
+    # 恢复 v1.22.0 框架能力（人格维度 / 自主目标 / 被动用户画像）
+    if personality is not None and "personality" in state:
+        from .personality.dimensions import PersonalityDimensions
+        loaded = PersonalityDimensions.from_dict(state["personality"])
+        personality._traits = loaded._traits
+        # 恢复进化模式开关与自定义风格（否则往返后回到默认 autonomous/空）
+        personality.autonomy_mode = loaded.autonomy_mode
+        personality.custom_style = loaded.custom_style
+    if auto_goals is not None and "auto_goals" in state:
+        from .autonomous_goals import AutonomousGoalEngine
+        loaded = AutonomousGoalEngine.from_dict(state["auto_goals"])
+        auto_goals._goals = loaded._goals
+        auto_goals._last_generate = loaded._last_generate
+        auto_goals.cooldown_seconds = loaded.cooldown_seconds
+        auto_goals.max_goals = loaded.max_goals
+    if user_profiles is not None and "user_profiles" in state:
+        from .user_profile import UserProfileGraph
+        loaded = UserProfileGraph.from_dict(state["user_profiles"])
+        user_profiles._profiles = loaded._profiles
     if session is not None and "session" in state:
         for k, v in state["session"].items():
             session[k] = v
@@ -200,7 +235,9 @@ def _restore(state: dict, needs, emotion, distiller, goals,
 def load_state(path: str, needs: NeedDriveSystem, emotion: EmotionGradient,
                distiller: Distiller, goals: GoalManager,
                seeds=None, values=None, relationships=None, self_model=None,
-               identity=None, neurochem=None, metacog=None, session=None) -> bool:
+               identity=None, neurochem=None, metacog=None,
+               personality=None, auto_goals=None, user_profiles=None,
+               session=None) -> bool:
     """从文件恢复认知+人格状态。返回是否成功加载。"""
     if not os.path.exists(path):
         return False
@@ -209,4 +246,6 @@ def load_state(path: str, needs: NeedDriveSystem, emotion: EmotionGradient,
             state = json.load(f)
     except (json.JSONDecodeError, OSError):
         return False
-    return _restore(state, needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, session)
+    if not isinstance(state, dict):
+        return False   # 合法 JSON 但非 dict（如字符串/列表）→ 容错为加载失败
+    return _restore(state, needs, emotion, distiller, goals, seeds, values, relationships, self_model, identity, neurochem, metacog, personality, auto_goals, user_profiles, session)

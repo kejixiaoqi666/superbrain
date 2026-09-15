@@ -16,7 +16,7 @@ class TestFrontierMechanisms(unittest.TestCase):
         self.assertEqual(self.s.get_meta('engram:'+n.node_id), str(n.created_at))
     def test_multi_cue_context_and_tags(self):
         a=self.s.add(MemoryNode(content='deploy retry policy', tags=['ops'], embedding=[1,0]))
-        b=self.s.add(MemoryNode(content='write poetry', tags=['creative'], embedding=[.9,.1]))
+        self.s.add(MemoryNode(content='write poetry', tags=['creative'], embedding=[.9,.1]))
         hits=multi_cue_search(self.s,[1,0],'deploy',k=2,context='deploy ops incident',tags=['ops'])
         self.assertEqual(hits[0][0].node_id,a.node_id)
         self.assertIn('context',hits[0][2]); self.assertIn('tag',hits[0][2])

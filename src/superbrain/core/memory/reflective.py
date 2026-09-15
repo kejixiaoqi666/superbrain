@@ -2,7 +2,7 @@
 Inspired by RMM (ACL 2025): prospective topic summaries and retrospective citation feedback.
 """
 from __future__ import annotations
-from typing import Callable, Iterable, List, Optional
+from typing import Iterable
 from .node import MemoryNode
 from .store import MemoryStore
 

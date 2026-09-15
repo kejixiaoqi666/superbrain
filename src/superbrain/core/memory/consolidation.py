@@ -6,7 +6,7 @@ requested), preserves frozen content, and records pruning as edges.
 """
 from __future__ import annotations
 import math, time
-from typing import Iterable, List, Tuple
+from typing import Iterable
 from .node import MemoryNode
 from .store import MemoryStore
 

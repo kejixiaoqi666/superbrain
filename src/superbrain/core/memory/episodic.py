@@ -1,6 +1,6 @@
 """Opt-in episodic indexing: time-aware gists linked to facts (REMem, 2026)."""
 from __future__ import annotations
-from typing import Iterable, List, Tuple
+from typing import Iterable, List
 from .node import MemoryNode
 from .store import MemoryStore
 

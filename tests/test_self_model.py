@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from superbrain.core.personality.self_model import SelfModel
 from superbrain.core.personality.identity import Identity
-from superbrain.core.cognition.emotion import EmotionGradient, EmotionalState, Expression
+from superbrain.core.cognition.emotion import EmotionGradient, Expression
 
 
 class TestIdentity(unittest.TestCase):

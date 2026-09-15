@@ -69,7 +69,21 @@ class NeedDriveSystem:
 
     def tick(self, dt: float = 1.0) -> Dict[NeedType, float]:
         self.tick_count += 1
-        return {nt: self.needs[nt].tick(dt) for nt in self.needs}
+        result = {nt: self.needs[nt].tick(dt) for nt in self.needs}
+        self._learn_importance()
+        return result
+
+    def _learn_importance(self) -> None:
+        """需求重要性习得：相对持续高缺口的需要重要性上升(形成个性偏好)，
+        长期不缺的回落。需求的优先级是"长出来的"，而非固定设定。
+        """
+        deficits = [n.deficit for n in self.needs.values()]
+        avg = sum(deficits) / len(deficits)
+        for need in self.needs.values():
+            if need.deficit > avg + 0.05:
+                need.importance = min(2.0, need.importance * (1.0 + 0.002))
+            elif need.deficit < avg - 0.05:
+                need.importance = max(0.5, need.importance * (1.0 - 0.001))
 
     def satisfy(self, need_type: NeedType, amount: float) -> None:
         if need_type in self.needs:

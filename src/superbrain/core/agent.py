@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+import copy
+import time
 from dataclasses import dataclass
+from collections import deque
 from typing import Dict, List, Optional, Tuple
 
 from .cognition.needs import NeedDriveSystem, NeedType
@@ -52,7 +55,10 @@ from .personality.values import ValueSystem
 from .personality.relationship import RelationshipGraph
 from .personality.self_model import SelfModel
 from .personality.identity import Identity
+from .personality.dimensions import PersonalityDimensions
 from .learning import LearningExtractor
+from .autonomous_goals import AutonomousGoalEngine
+from .user_profile import UserProfileGraph
 
 logger = logging.getLogger("superbrain.agent")
 
@@ -107,6 +113,10 @@ class SuperBrainAgent:
         self.relationships = RelationshipGraph()
         self.self_model = SelfModel(identity="超脑", capability=["对话", "记忆", "工具执行", "规划"])
         self.identity = Identity(name="超脑")
+        self.personality = PersonalityDimensions()      # 人格维度框架（长出来的，非预设）
+        self.auto_goals = AutonomousGoalEngine()        # 自主目标生成（内在状态涌现意图）
+        self.user_profiles = UserProfileGraph()         # 被动用户画像（随相处长出来）
+        self._expressions = deque(maxlen=20)            # 近期 humanize 实际表现的人格维度（自省内化素材）
         self.learning = LearningExtractor(llm) if self.config.enable_learning else None
         self.working = WorkingMemory()
         self.event_log = EventLog()
@@ -142,6 +152,10 @@ class SuperBrainAgent:
             # 生命感板块可观察状态：自主消息积压 + 人性化可爱度
             "autonomous": {"pending_thoughts": self.autonomous.count},
             "humanize": {"cute_probability": self.humanize.cute_probability},
+            # v1.22.0 框架能力可观察状态
+            "personality": self.personality.profile(),
+            "autonomous_goals": self.auto_goals.summary(),
+            "user_profiles": self.user_profiles.summary(),
         }
 
     def _state_block(self) -> str:
@@ -187,12 +201,15 @@ class SuperBrainAgent:
             k = 5  # 脏 k（如字符串）防御，避免切片崩
         vec = self._embed(query)
         hits = retrieval.search(self.store, vec, query, k=k)
-        current_valence = self.emotion.state.valence  # -1..1
-        # 情绪偏好：valence 匹配的记忆加分（同号），情绪唤醒高时扩大召回
+        # 情绪一致性记忆提取（认知-情绪回路）：以心境(mood)为一致性信号——
+        # 心境低落时偏向想起负面记忆、高涨时想起正面；不一致的轻微抑制。
+        mood = self.emotion.state.mood  # 慢变量心境 -1..1（比瞬时更稳定地偏置回忆基调）
         for i, (node, score, why) in enumerate(hits):
-            sim = current_valence * node.valence
-            boost = sim * 0.15  # 同号情绪的记忆轻微上扬
-            hits[i] = (node, score + boost, f"{why}+感情")
+            sim = mood * node.valence
+            boost = sim * 0.25          # 同向情绪记忆上扬（增强偏置）
+            if sim < 0:
+                boost *= 0.5             # 情绪不一致的记忆略抑制
+            hits[i] = (node, score + boost, f"{why}+情绪一致")
         # 唤醒高时多召回一点（更愿意联想）
         eager_k = k + int(self.emotion.state.arousal * 2) if self.emotion.state.arousal > 0.6 else k
         return hits[:max(k, eager_k)]
@@ -242,8 +259,15 @@ class SuperBrainAgent:
                 rel = self.relationships.get_or_create(person_id)
                 rel.grow(familiarity_delta=0.02, trust_delta=0.008, attachment_delta=0.004)
                 self._active_rel = rel
+                # 被动用户画像：零 LLM 启发式观测（沟通风格/情绪基调/话题兴趣），随相处长出来
+                self.user_profiles.observe(person_id, message, name=rel.name)
             except Exception:
                 self._active_rel = None
+        # 人格维度被动成长：用户消息的风格/反馈塑造超脑人格（非预设，随相处长出来）
+        try:
+            self.personality.observe_interaction(message)
+        except Exception:
+            pass
         self._stats["turns"] += 1
         self._last_message = message
         self._conversation.append({"role": "user", "content": message})
@@ -325,6 +349,22 @@ class SuperBrainAgent:
                 f"[我对{rel.name or '对方'}的关系] 定位={rel.orientation} "
                 f"(把握{rel.orientation_confidence:.2f})，依恋{rel.attachment:.2f}，"
                 f"熟悉{rel.familiarity:.2f}{nick}。这是我相处中自主形成的判断。"})
+        # 人格维度：只注入显著偏离中性且有把握的维度（框架长出来的，非预设）
+        try:
+            personality_text = self.personality.profile_text()
+            if personality_text:
+                msgs.append({"role": "system", "content": f"[{personality_text}]"})
+        except Exception:
+            pass
+        # 被动用户画像：对当前这个人被动积累的了解（只列有实质观测的）
+        if self._active_rel is not None:
+            try:
+                up = self.user_profiles.get(self._active_rel.person_id)
+                up_text = up.profile_text() if up else ""
+                if up_text:
+                    msgs.append({"role": "system", "content": f"[{up_text}]"})
+            except Exception:
+                pass
         # 对话历史：按 token 预算截断（而非固定条数，避免无限增长）
         msgs.extend(self._recent_history())
 
@@ -333,7 +373,25 @@ class SuperBrainAgent:
 
         # 5. 学习：情绪更新 + 记忆沉淀 + 自适应调参 + 自动抽取学习信号
         success = 1.0 if answer else 0.0
-        self.emotion.update(sats, task_success=success)
+        # 情绪感染：与重要且长期低落的人相处 → 共情，自身情绪被牵引（社会情绪）
+        contagion = 0.0
+        if self._active_rel is not None:
+            try:
+                up = self.user_profiles.get(self._active_rel.person_id)
+                if up and up.mood_count >= 3 and up.mood_mean < -0.3:
+                    # 对方情绪低落(负) → 感染源为负，拖低自身 valence；熟悉度加权
+                    contagion = up.mood_mean * min(1.0, self._active_rel.familiarity)
+            except Exception:
+                contagion = 0.0
+        self.emotion.update(sats, task_success=success, contagion=contagion)
+        # 社会情绪：任务产出自豪/愧疚（基于行为与"是否做成/帮到人"）
+        try:
+            if success >= 1.0:
+                self.emotion.social_update(pride=0.3)      # 做成事 → 轻微自豪
+            elif self._active_rel is not None:
+                self.emotion.social_update(guilt=0.15)     # 对重要的人没做好 → 轻微愧疚
+        except Exception:
+            pass
         try:
             self.emotion.compute_intrinsic_reward()  # 记录本轮内在奖励，供 mean_reward/tuner 用
         except Exception:
@@ -490,10 +548,165 @@ class SuperBrainAgent:
         return self._artifacts.get(h, "[未找到该 artifact]")
 
     def dream(self, window_hours: float = 24.0) -> List[str]:
-        """睡眠计算：回顾近期记忆，提炼教训写回经验库。"""
+        """睡眠计算：回顾记忆 + 人格自省 + 记忆遗忘(降级非删) + 对话浓缩。"""
         if not isinstance(window_hours, (int, float)):
             window_hours = 24.0  # None/非数值防御
+        self._self_reflect()
+        self._forget_memory()                                  # 遗忘：长期不用的降级
+        self._condense_session_memories()                      # 浓缩：30天窗口后提炼为要点
+        # 情绪时间动力学：睡眠=时间流逝，瞬时情绪向心境基线回归（事件会回落，心境底色还在）
+        try:
+            self.emotion.elapse(dt_hours=max(window_hours, 1.0))
+        except Exception:
+            pass
+        # 记忆库超物理上限(默认1GB)时，强制更激进浓缩（缩窗口/缩批次）
+        if self.store.over_size_limit():
+            c2 = self._condense_session_memories(window_hours=24.0, min_batch=2)
+            logger.warning("记忆库超限，触发强制浓缩: %s", c2)
         return self.dreamer.dream(window_hours=window_hours)
+
+    def _forget_memory(self) -> None:
+        """主动遗忘：睡眠时把长期未访问、低价值的 recall 记忆降级到 archival。
+
+        遗忘 ≠ 删除——只是脱离活跃召回(活跃集有界，性能不随总记忆无限退化)，
+        用户重新提起(检索强命中)时经 store.search 自动重激活回 recall（提起来又活跃）。
+        """
+        try:
+            from .memory.consolidation import Consolidator
+            Consolidator(self.store).sleep(forget_below=0.05)
+        except Exception:
+            logger.debug("记忆遗忘降级失败", exc_info=True)
+
+    def _summarize(self, system: str, text: str) -> str:
+        """LLM 提炼要点；失败退化启发式（无 LLM 也能浓缩）。"""
+        try:
+            resp = self.llm.chat(
+                [{"role": "system", "content": system},
+                 {"role": "user", "content": text}], max_tokens=400)
+            s = (resp.content or "").strip()
+            if s:
+                return s
+        except Exception:
+            pass
+        # 退化：启发式保留含关键信号的句子（寒暄细节丢弃）
+        keys = ("喜欢", "偏好", "需要", "希望", "习惯", "计划", "重要", "结论", "记住", "不")
+        keep = [l for l in text.splitlines() if any(k in l for k in keys)]
+        return "\n".join(keep)[:200] if keep else ""
+
+    def _condense_session_memories(self, window_hours: float = 24 * 30.0,
+                                   min_batch: int = 5) -> dict:
+        """对话浓缩：把超过保留窗口的旧会话记忆，浓缩成一条要点常规记忆（优质记忆）。
+
+        语义：保留窗口内(默认30天)全部记住；超过后开始整理——保留细节价值、
+        删除多余(去重/降噪/寒暄)、把真实意义/重点提炼成一条 user 常青记忆（优质记忆），
+        原始细节降级遗忘(可重激活)。返回 {"condensed","forgotten"}。
+        """
+        try:
+            now = time.time()
+            old = [n for n in self.store.by_scope("session")
+                   if n.created_at and now - n.created_at > window_hours * 3600
+                   and n.tier != "archival"]
+            if len(old) < min_batch:
+                return {"condensed": 0, "forgotten": 0}
+            texts = [n.content for n in sorted(old, key=lambda n: n.created_at)]
+            batch = "\n".join(texts[-60:])   # 最多浓缩最近 60 条
+            summary = self._summarize(
+                "你是对话记忆浓缩器。把下面的历史对话压缩成一条长期记忆，"
+                "保留用户偏好、关键事实、重要结论，去掉寒暄和过程细节。中文150字内。",
+                batch)
+            if not summary:
+                return {"condensed": 0, "forgotten": 0}
+            # 存为常规记忆（保留重点关键，常青 non-session）
+            self.remember(summary, scope="user", tags=["condensed"])
+            # 原始细节降级遗忘（提起来可重激活，物理不删）
+            for n in old:
+                self.store.promote(n.node_id, "archival")
+            return {"condensed": 1, "forgotten": len(old)}
+        except Exception:
+            logger.debug("对话浓缩失败", exc_info=True)
+            return {"condensed": 0, "forgotten": 0}
+
+    def record_expression(self) -> None:
+        """记录一次 humanize 实际用人格维度驱动的表达强度（自省素材）。
+
+        每次人性化表达时调用，把当前人格快照入队；dream 时回顾近期稳定表现。
+        """
+        try:
+            self._expressions.append({n: t.value for n, t in self.personality.all()})
+        except Exception:
+            pass
+
+    def absorb_user_profiles(self) -> List[str]:
+        """从所有用户长期画像升格人格（用户画像→人格的自动内化）。
+
+        三级联动：用户长期偏好(画像) → 相处(关系) → 自动升格人格。
+        返回被升格的人格维度名列表。
+        """
+        try:
+            return self.personality.set_from_user(
+                self.user_profiles.aggregate_personality())
+        except Exception:
+            return []
+
+    def set_user_style(self, person_id: str, style: str) -> bool:
+        """为该用户记录表达风格（per-user 用户主导）。空 pid 或空/非字符串风格返回 False。"""
+        if not person_id or not isinstance(style, str) or not (style or "").strip():
+            return False
+        self.user_profiles.get_or_create(person_id).set_style(style)
+        return True
+
+    def user_style(self, person_id: str) -> str:
+        """该用户的表达风格文本（无则空串）。"""
+        up = self.user_profiles.get(person_id)
+        return up.style if up else ""
+
+    def expression_personality(self, person_id: str = None):
+        """返回用于该用户表达的人格。
+
+        - 无 person_id → 全局人格；
+        - 该用户设了预置风格(可爱/冷静...) → 以全局人格为基底，用该风格维度覆盖
+          （对该用户呈现指定表达倾向，不污染全局人格）；
+        - 自定义风格(傲娇...) → core 不预设映射，仍用全局人格（交给上层注入表达）。
+        """
+        pd = self.personality
+        if not person_id:
+            return pd
+        up = self.user_profiles.get(person_id)
+        style = up.style if up else ""
+        if not style:
+            return pd
+        # 预置风格 → 覆盖维度；自定义风格 core 不硬套
+        from .personality.dimensions import _STYLE_PRESETS
+        preset = _STYLE_PRESETS.get(style)
+        if not preset:
+            return pd
+        overlay = copy.deepcopy(pd)
+        for dim, val in preset.items():
+            t = overlay._traits.get(dim)
+            if t is None:
+                continue
+            t.value = val
+            t.confidence = max(t.confidence, 0.9)
+        return overlay
+
+    def _self_reflect(self) -> List[str]:
+        """人格主动自省：汇总近期表达特征 → reflect() 内化（防脏数据/空队列）。
+
+        返回本次被内化调整的人格维度名列表。
+        """
+        try:
+            if not self._expressions:
+                return []
+            feats = {}
+            for dim in ("openness", "conscientiousness", "extraversion",
+                        "agreeableness", "neuroticism"):
+                vals = [ex.get(dim) for ex in self._expressions
+                        if isinstance(ex.get(dim), (int, float))]
+                if vals:
+                    feats[dim] = sum(vals) / len(vals)
+            return self.personality.reflect(feats)
+        except Exception:
+            return []
 
     # ---------- 全局工作空间 GWT ----------
 
@@ -593,13 +806,16 @@ class SuperBrainAgent:
                        seeds=self.seeds, values=self.values,
                        relationships=self.relationships, self_model=self.self_model,
                        identity=self.identity, neurochem=self.neurochem, metacog=self.meta,
-                       session=sess)
+                       personality=self.personality, auto_goals=self.auto_goals,
+                       user_profiles=self.user_profiles, session=sess)
             return path
         save_state_to_store(self.store, self.needs, self.emotion,
                             self.distiller, self.goals, seeds=self.seeds,
                             values=self.values, relationships=self.relationships,
                             self_model=self.self_model, identity=self.identity,
-                            neurochem=self.neurochem, metacog=self.meta, session=sess)
+                            neurochem=self.neurochem, metacog=self.meta,
+                            personality=self.personality, auto_goals=self.auto_goals,
+                            user_profiles=self.user_profiles, session=sess)
         return self.store.path
 
     def load(self, path: Optional[str] = None) -> bool:
@@ -610,13 +826,16 @@ class SuperBrainAgent:
                             seeds=self.seeds, values=self.values,
                             relationships=self.relationships, self_model=self.self_model,
                             identity=self.identity, neurochem=self.neurochem, metacog=self.meta,
-                            session=sess)
+                            personality=self.personality, auto_goals=self.auto_goals,
+                            user_profiles=self.user_profiles, session=sess)
         else:
             ok = load_state_from_store(self.store, self.needs, self.emotion,
                                        self.distiller, self.goals, seeds=self.seeds,
                                        values=self.values, relationships=self.relationships,
                                        self_model=self.self_model, identity=self.identity,
-                                       neurochem=self.neurochem, metacog=self.meta, session=sess)
+                                       neurochem=self.neurochem, metacog=self.meta,
+                                       personality=self.personality, auto_goals=self.auto_goals,
+                                       user_profiles=self.user_profiles, session=sess)
         if ok and sess:
             self._session_restore(sess)
         return ok
@@ -634,14 +853,24 @@ class SuperBrainAgent:
         self.scheduler.start()
 
     def _tick_autonomous(self) -> Optional[str]:
-        """空闲触发自主思考：产生想法并显式入队，供上层 drain() 灌进对话。"""
+        """空闲触发自主思考 + 自主目标生成（想法入队、意图入库存，均幂等冷却）。"""
         try:
             for thought in self.autonomous.generate(self.needs, self.emotion,
                                                     self.relationships):
                 self.autonomous.enqueue(thought)
         except Exception:
             pass
+        try:
+            self.generate_goals()   # 从内在状态涌现中长期自主目标（内部有冷却/去重）
+        except Exception:
+            pass
         return None
+
+    def generate_goals(self):
+        """自主目标生成：基于需求/情绪/关系/人格维度涌现意图，返回本次新产生的目标。"""
+        return self.auto_goals.generate(
+            self.needs, self.emotion, self.relationships,
+            personality=self.personality)
 
     # ---------- 概念图 + 去重 ----------
 
@@ -684,16 +913,30 @@ class SuperBrainAgent:
         """记录关系记忆（对某人的长期了解）。"""
         self.relationships.note(person_id, content, source, confidence)
 
+    def adopt_autonomous_goals(self) -> List[Goal]:
+        """把 active 自主目标采纳进目标系统（意图→目标闭环），返回新采纳的 Goal。"""
+        adopted = []
+        for ag in self.auto_goals.active():
+            goal = self.goals.adopt_autonomous(ag)
+            if goal is not None:
+                adopted.append(goal)
+        return adopted
+
     def act(self, goal: Optional[Goal] = None) -> Optional[str]:
-        """行动：从需求派生目标 → 拆解 → 用工具执行下一步。
+        """行动：优先采纳自主目标（内在状态涌现的意图），否则需求即时派生 → 拆解 → 执行。
 
         返回本次行动的结果描述，或 None（无目标/无行动）。
         """
         dom, drive = self.needs.get_dominant_need()
         if goal is None:
-            goal = self.goals.derive_goal(dom, drive)
-            if goal is None:
-                return None
+            # 优先推进自主目标（意图→目标闭环）；无自主目标再即时派生
+            adopted = self.adopt_autonomous_goals()
+            if adopted:
+                goal = adopted[0]
+            else:
+                goal = self.goals.derive_goal(dom, drive)
+                if goal is None:
+                    return None
             # LLM 规划拆解（Plan-and-Execute），失败回退规则
             steps = self.planner.plan(goal, [t.name for t in self.tools.list()])
             self.goals.decompose(goal, steps)
@@ -809,9 +1052,12 @@ class SuperBrainAgent:
             summary = (resp.content or "").strip()
             if summary:
                 self._compressed_summary = summary
-                self._conversation = keep
         except Exception:
-            pass  # 压缩失败则保持原样，不阻塞
+            logger.warning("对话压缩失败，降级截断（保最近，防无界增长）")
+        finally:
+            # 无论压缩成功/失败/LLM空返回，都截断保留最近 N 条原始，保证 _conversation 有界
+            # （否则 LLM 不可用时 _conversation 无限增长，恰在最需要降级时雪上加霜）
+            self._conversation = keep
 
     def _format_memory(self, hits: List[Tuple[MemoryNode, float, str]],
                        max_chars: int = 800) -> str:

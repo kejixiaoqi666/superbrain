@@ -23,6 +23,7 @@ class ThoughtType(str, Enum):
     CARE = "care"        # 关心
     CURIOUS = "curious"  # 好奇
     SHARE = "share"      # 分享
+    REPAIR = "repair"    # 愧疚→修复关系冲动（补偿/道歉）
 
 
 @dataclass
@@ -107,16 +108,45 @@ class AutonomousThoughtEngine:
         # 好奇/分享：由主导需求驱动
         typ, drive = needs.get_dominant_need()
         name = (getattr(typ, "value", typ) or "").lower()
+        # ② 情绪偏置决策：低落时保守——抑制好奇探索(不想冒险)，倾向稳定/安全
+        low_mood = False
+        if emotion is not None:
+            v = getattr(getattr(emotion, "state", None), "valence", 0.0)
+            low_mood = isinstance(v, (int, float)) and v < -0.3
         if name == "certainty" and drive > _NEED_DRIVE_THRESHOLD:
-            t = self._add(ThoughtType.CURIOUS, "我想探索一些新东西，弄明白未知的事情。",
-                          "主导需求为确定性且驱动力较高", now, "", 0.6)
-            if t:
-                produced.append(t)
+            if not low_mood:
+                t = self._add(ThoughtType.CURIOUS, "我想探索一些新东西，弄明白未知的事情。",
+                              "主导需求为确定性且驱动力较高", now, "", 0.6)
+                if t:
+                    produced.append(t)
+            else:
+                # 低落保守：不想冒险探索，倾向先把眼前的事情稳住
+                t = self._add(ThoughtType.SHARE, "我最近情绪不高，先不折腾新东西了，把眼前的事稳住。",
+                              "情绪低迷，倾向保守稳定", now, "", 0.5)
+                if t:
+                    produced.append(t)
         if name == "relatedness" and drive > _NEED_DRIVE_THRESHOLD:
             t = self._add(ThoughtType.SHARE, "我想和重要的人分享一下最近的近况。",
                           "主导需求为关联性且驱动力较高", now, "", 0.6)
             if t:
                 produced.append(t)
+
+        # ③ 愧疚 → 修复关系冲动（社会情感驱动行为回路：愧疚→想补偿/道歉）
+        if emotion is not None:
+            guilt = getattr(getattr(emotion, "state", None), "guilt", 0.0)
+            if isinstance(guilt, (int, float)) and guilt >= 0.4:
+                # 对最在意(熟悉度最高)的人表达修复意图，愧疚越深越紧迫
+                best = sorted(
+                    (r for r in relationships.all() if getattr(r, "familiarity", 0) >= 0.4),
+                    key=lambda r: getattr(r, "familiarity", 0), reverse=True)
+                for rel in best[:1]:
+                    t = self._add(ThoughtType.REPAIR,
+                                  f"我对{rel.name}有些愧疚，想道个歉、做点什么补偿，别让关系疏远了。",
+                                  f"愧疚{guilt:.2f}，在意{getattr(rel,'name','对方')}",
+                                  now, rel.person_id, min(1.0, guilt))
+                    if t:
+                        produced.append(t)
+                    break
 
         # 情绪驱动：情绪明显低落时，主动想找人倾诉（emotion 参数真正参与）
         if emotion is not None:

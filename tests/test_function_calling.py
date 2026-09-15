@@ -1,13 +1,12 @@
 """超脑 function-calling 闭环测试。"""
 
-import json
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from superbrain.core.llm import LLMProvider, LLMResponse, ToolCall
+from superbrain.core.llm import LLMResponse, ToolCall
 
 
 class TestFunctionCalling(unittest.TestCase):

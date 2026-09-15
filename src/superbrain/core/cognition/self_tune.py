@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict
 
 logger = logging.getLogger("superbrain.self_tune")
 

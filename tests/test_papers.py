@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from superbrain.core.memory.distill import Distiller, WikiEntry
+from superbrain.core.memory.distill import Distiller
 from superbrain.core.memory.retrieval import query_entropy
 
 
