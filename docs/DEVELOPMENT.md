@@ -23,14 +23,23 @@ python -m build --wheel               # 构建 wheel 到 dist/
 ## 架构速查
 
 ```
-src/superbrain/core/
-├── agent.py          # 主循环入口（SuperBrainAgent）
-├── llm.py            # LLM Provider + from_env + estimate_tokens
-├── gwt.py goals.py planner.py scheduler.py state.py tools.py learning.py
-├── cognition/        # needs emotion self_tune neurochem metacognition
-├── personality/      # identity seed values relationship self_model
-└── memory/           # node store retrieval heat embeddings distill dream
-                      # concept dedupe working eventlog time_sense pisa
+src/superbrain/
+├── facade.py          # SuperBrain 门面（推荐入口，一行装配全能力）
+├── server.py          # HTTP 服务（零依赖 REST API）
+├── server_mcp.py      # MCP server（21 工具，对接 Codex/Hermes）
+├── __main__.py        # CLI 入口
+└── core/
+    ├── agent.py       # 主循环入口（SuperBrainAgent，底层）
+    ├── llm.py         # LLM Provider + from_env + estimate_tokens
+    ├── autonomous.py  # 自主思考（想念/关心/好奇/分享/修复冲动）
+    ├── autonomous_goals.py  # 自主目标生成→采纳→推进
+    ├── user_profile.py      # 被动用户画像
+    ├── humanize.py          # 人性化表达引擎（人格/画像驱动）
+    ├── gwt.py goals.py planner.py scheduler.py state.py tools.py learning.py
+    ├── cognition/    # needs emotion self_tune neurochem metacognition
+    ├── personality/  # identity seed values relationship self_model dimensions(大五)
+    └── memory/       # node store retrieval heat embeddings distill dream
+                      # concept dedupe working eventlog time_sense pisa consolidation
 ```
 
 ## 已知坑

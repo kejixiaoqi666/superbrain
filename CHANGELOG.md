@@ -21,9 +21,10 @@
 - 护栏：记忆库物理上限默认 1GB（可配）
 
 ### 质量
-- 327 测试全过，pyflakes src 全量 0 告警
+- 349 测试全过，pyflakes(src+tests) 全量 0 告警
 - 长会话压测：2000 轮内存峰值 ~1MB，无无限增长
 - 检索：10k 条记忆 FTS5 候选路径 ~11ms
+- v2.0.0 Release 迁移修复：旧件 brain.db schema 自动补列(ALTER)，旧数据 tags NULL 容错
 
 ---
 
