@@ -52,7 +52,7 @@ from .core.autonomous_goals import AutonomousGoalEngine, AutonomousGoal, GoalHor
 from .core.user_profile import UserProfileGraph, UserProfile
 from .core.learning import LearningExtractor
 
-__version__ = "2.0.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "SuperBrainAgent", "AgentConfig", "SuperBrain",
