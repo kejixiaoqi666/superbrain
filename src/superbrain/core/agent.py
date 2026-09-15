@@ -993,22 +993,29 @@ class SuperBrainAgent:
     def _recent_history(self) -> List[Dict[str, str]]:
         """注入历史：滚动摘要 + 最近原始消息（清洗结构噪声，防上下文污染）。"""
         out: List[Dict[str, str]] = []
-        if self._compressed_summary:
-            out.append({"role": "system",
-                        "content": f"[过往摘要] {self._compressed_summary}"})
         budget = self.config.history_budget
         used = 0
+        # 摘要也必须计入同一预算；此前摘要未计入，可能使历史块超预算。
+        summary_msg = None
+        if self._compressed_summary:
+            summary_msg = {"role": "system",
+                           "content": f"[过往摘要] {self._compressed_summary}"}
+            used = estimate_tokens(summary_msg["content"])
+            if used > budget:
+                summary_msg = None
+                used = 0
         for m in reversed(self._conversation):
-            t = estimate_tokens(m["content"])
-            if used + t > budget:
-                break
-            # Ingestion-Aware：清洗历史消息（旧 tool 消息降级、噪声丢弃）
             role = m.get("role", "user")
             content = clean_history_message(m["content"], role)
             if content is None or is_noise(content):
-                continue  # 纯噪声丢弃
+                continue  # 纯噪声丢弃，不占预算
+            t = estimate_tokens(content)
+            if used + t > budget:
+                break
             out.append({"role": role, "content": content})
             used += t
+        if summary_msg:
+            out.append(summary_msg)
         return list(reversed(out))
 
     def _maybe_autosave(self) -> None:

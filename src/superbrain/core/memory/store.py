@@ -7,6 +7,7 @@ import os
 import sqlite3
 import struct
 import time
+import heapq
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple
@@ -416,7 +417,9 @@ class MemoryStore:
                 s = self._sim(query_vec, vec)
                 if s > 0.0:
                     scored.append((node_id, s))
-        scored.sort(key=lambda t: t[1], reverse=True)
+        # 只需 top-k：避免数千条候选的 O(n log n) 全排序。
+        # heapq.nlargest 保持与原排序相同的分数降序语义。
+        scored = heapq.nlargest(k, scored, key=lambda t: t[1])
         if scored and rel_floor > 0.0:
             floor = scored[0][1] * rel_floor
             scored = [t for t in scored if t[1] >= floor]
