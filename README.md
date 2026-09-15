@@ -115,3 +115,61 @@ python -m pip install ".[mcp]"
 
 This project is released under the MIT License. You may use, modify, commercially use, and redistribute it, subject to preserving the license and copyright notice. The software is provided as-is.
 
+
+## 一眼看懂 SuperBrain
+
+![SuperBrain 架构图](docs/images/architecture.svg)
+
+SuperBrain 负责的是 Agent 的“可复用基础能力”：让不同的模型、客户端和工具共享一套记忆、状态和任务约定。它不替你选择模型，也不自动获得服务器权限。
+
+### 它适合什么场景？
+
+| 场景 | SuperBrain 提供的帮助 | 你仍需要准备 |
+|---|---|---|
+| Telegram / Web 对话机器人 | 保存用户和项目上下文，按范围召回 | Telegram Gateway 或 Web 客户端 |
+| 本地开发助手 | 记录项目决策、任务状态、反馈 | LLM、Shell/Git 工具适配器 |
+| 运维助手 | 保存主机别名、操作记录和任务收据 | 你自己的 SSH 执行器与凭据库 |
+| 多模型应用 | 让上层通过统一调用面接入不同模型 | 对应 Provider 的授权和 API |
+
+### 从一次对话到下一次调用
+
+```mermaid
+flowchart LR
+  A[消息] --> B[识别 owner / project]
+  B --> C[按预算检索记忆]
+  C --> D[模型或规则处理]
+  D --> E[工具执行与证据]
+  E --> F[反馈与任务收据]
+  F --> G[候选记忆]
+  G --> H[接受后进入长期召回]
+```
+
+### 记忆不是一个大文本框
+
+记忆按 `owner → project → scope` 隔离，并区分工作上下文、稳定事实、项目决策、程序性经验和可遗忘内容。每条记忆带有重要性、置信度、来源、时间和反馈；经常被成功使用的内容会获得更高召回优先级，过期或被新事实覆盖的内容会被过滤。
+
+核心库只保存记忆元数据和内容，不保存密码、Token、私钥。认证信息应由环境变量、系统密钥环或独立 Vault 管理，记忆里只引用 profile 名称。
+
+### 当前能力边界
+
+- **已实现**：本地记忆存储、候选到接受流程、作用域过滤、可解释召回、反馈更新、上下文预算、checkpoint、基础 HTTP/MCP 接口。
+- **可接入**：Telegram、真实 LLM、SSH、OAuth、MCP 工具和外部 Vault；仓库提供契约与适配位置，但不会凭空声称已经连接。
+- **仍需完善**：Windows SQLite 连接清理、生产级 IPC 身份认证、持久任务表、真实 Gateway 和 Secret Broker。
+
+### 项目目录
+
+```text
+src/superbrain/   核心库：memory / cognition / personality / core
+examples/         离线可运行示例
+docs/             快速开始、FAQ、状态和开发文档
+tests/            回归测试
+```
+
+### 了解更多
+
+- [快速开始](docs/GETTING_STARTED.md)
+- [集成指南](INTEGRATION.md)
+- [常见问题](docs/FAQ.md)
+- [当前状态与已知限制](docs/STATUS.md)
+- [安全说明](SECURITY.md)
+- [MIT License](LICENSE)
