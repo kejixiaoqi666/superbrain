@@ -1,4 +1,6 @@
-# SuperBrain English Documentation
+[简体中文](README.md) | [English](README_EN.md)
+
+# SuperBrain
 
 ## What is SuperBrain?
 
@@ -59,3 +61,4 @@ pip install "dist/superbrain-1.21.2-py3-none-any.whl[mcp]"
 - [Development](docs/DEVELOPMENT.md)
 - [Security](SECURITY.md)
 - [MIT License](LICENSE)
+
